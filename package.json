@@ -1,0 +1,29 @@
+{
+  "name": "excel-analyzer",
+  "version": "1.0.0",
+  "description": "Real-time Excel Sheet Analyzer using Node.js and Google Gemini API",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js",
+    "generate-sample": "node generate-sample.js"
+  },
+  "keywords": [
+    "excel",
+    "gemini-api",
+    "sheetjs",
+    "node",
+    "express"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^2.18.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1",
+    "multer": "^2.2.0",
+    "xlsx": "^0.18.5"
+  }
+}

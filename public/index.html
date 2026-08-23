@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Excel Sheet AI Analyzer | Real-Time Gemini Intelligence</title>
+  <!-- Google Fonts: Inter & JetBrains Mono -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <!-- Tailwind CSS Play CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+          },
+          colors: {
+            excel: {
+              50: '#f0fdf4',
+              100: '#dcfce7',
+              500: '#107c41',
+              600: '#0b6a36',
+              700: '#09552b',
+              800: '#074221',
+              900: '#042a15',
+              dark: '#0f703b'
+            }
+          }
+        }
+      }
+    }
+  </script>
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    /* Standard Excel Spreadsheet Theme Styles */
+    .excel-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05);
+    }
+    
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 8px;
+      height: 8px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #f1f5f9;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #cbd5e1;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #94a3b8;
+    }
+
+    /* Grid Table Lines */
+    .excel-grid-th {
+      background-color: #f8fafc;
+      border-right: 1px solid #cbd5e1;
+      border-bottom: 2px solid #cbd5e1;
+      color: #334155;
+    }
+    .excel-grid-td {
+      border-right: 1px solid #e2e8f0;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .excel-row-header {
+      background-color: #f1f5f9;
+      border-right: 1px solid #cbd5e1;
+      border-bottom: 1px solid #e2e8f0;
+      color: #64748b;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-800 min-h-screen font-sans antialiased selection:bg-excel-500 selection:text-white pb-12">
+  
+  <!-- ==================== STARTUP SPLASH SCREEN ==================== -->
+  <div id="splashScreen" class="fixed inset-0 bg-white z-50 flex flex-col items-center justify-center transition-opacity duration-700 ease-out">
+    <div class="flex flex-col items-center space-y-5 text-center max-w-sm px-6">
+      
+      <!-- Excel Animated Logo Container -->
+      <div class="relative w-20 h-20 bg-excel-500 rounded-2xl flex items-center justify-center text-white shadow-xl shadow-excel-500/30 transform hover:scale-105 transition duration-300">
+        <i data-lucide="file-spreadsheet" class="w-11 h-11 text-white animate-pulse"></i>
+        <div class="absolute -bottom-1 -right-1 bg-amber-400 text-slate-900 text-[10px] font-extrabold px-1.5 py-0.5 rounded shadow">
+          AI
+        </div>
+      </div>
+      
+      <div>
+        <h2 class="text-xl font-bold text-slate-900 tracking-tight">Excel Sheet Analyzer</h2>
+        <p class="text-xs text-slate-500 mt-1 font-medium">Powered by Google Gemini 3.6 & SheetJS</p>
+      </div>
+
+      <!-- Startup Progress Bar -->
+      <div class="w-48 bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200">
+        <div id="splashProgressBar" class="bg-excel-500 h-full w-0 transition-all duration-1000 ease-out"></div>
+      </div>
+      
+      <p class="text-[11px] text-slate-400 font-mono">Initializing spreadsheet engine...</p>
+    </div>
+  </div>
+  <!-- ==================== END SPLASH SCREEN ==================== -->
+
+
+  <!-- Excel Green Top Ribbon Header -->
+  <header class="bg-excel-500 text-white shadow-md sticky top-0 z-40">
+    <!-- Top Ribbon Bar -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-between">
+      
+      <div class="flex items-center space-x-3">
+        <div class="w-9 h-9 rounded-lg bg-white/15 border border-white/20 flex items-center justify-center text-white shadow-inner">
+          <i data-lucide="table-properties" class="w-5 h-5"></i>
+        </div>
+        <div>
+          <h1 class="text-base font-bold tracking-wide text-white flex items-center space-x-2">
+            <span>Microsoft Excel AI Analyzer</span>
+            <span class="text-[10px] uppercase tracking-wider bg-white/20 text-white px-2 py-0.5 rounded font-semibold">Pro</span>
+          </h1>
+        </div>
+      </div>
+      
+      <div class="flex items-center space-x-3">
+        <span class="hidden sm:inline-flex items-center px-3 py-1 rounded-md text-xs font-medium bg-excel-800/60 text-emerald-100 border border-white/10">
+          <span class="w-2 h-2 rounded-full bg-emerald-300 animate-pulse mr-2"></span>
+          Gemini 3.6 Engine Active
+        </span>
+        
+        <button id="loadSampleBtn" class="px-3.5 py-1.5 rounded-md text-xs font-semibold bg-white text-excel-700 hover:bg-slate-50 border border-white/40 shadow-sm transition flex items-center space-x-1.5 active:scale-95">
+          <i data-lucide="sparkles" class="w-3.5 h-3.5 text-amber-500"></i>
+          <span>Load Sample Sheet</span>
+        </button>
+      </div>
+
+    </div>
+
+    <!-- Excel Ribbon Menu Sub-Bar -->
+    <div class="bg-excel-700 text-emerald-100 text-xs px-4 sm:px-8 py-1.5 flex items-center space-x-6 border-t border-excel-600/60 font-medium overflow-x-auto">
+      <span class="text-white font-bold border-b-2 border-white pb-0.5 cursor-pointer">Home</span>
+      <span class="hover:text-white cursor-pointer transition">Insert</span>
+      <span class="hover:text-white cursor-pointer transition">Page Layout</span>
+      <span class="hover:text-white cursor-pointer transition">Formulas</span>
+      <span class="hover:text-white cursor-pointer transition">Data</span>
+      <span class="hover:text-white cursor-pointer transition">AI Transform</span>
+      <span class="hover:text-white cursor-pointer transition">View</span>
+    </div>
+  </header>
+
+  <!-- Main Work Area Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6 space-y-6">
+    
+    <!-- Upload Section & Formula Bar Controls -->
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      
+      <!-- Upload Drop Zone (Lg: 5 cols) -->
+      <div class="lg:col-span-5 flex flex-col">
+        <div class="excel-card rounded-xl p-5 flex-1 flex flex-col justify-between">
+          <div class="flex items-center justify-between mb-3">
+            <h2 class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-2">
+              <i data-lucide="upload" class="w-4 h-4 text-excel-500"></i>
+              <span>1. Import Excel Workbook</span>
+            </h2>
+            <span id="fileBadge" class="hidden px-2 py-0.5 text-xs font-semibold bg-emerald-100 text-excel-700 rounded border border-emerald-300">
+              Loaded
+            </span>
+          </div>
+
+          <!-- Drag and Drop Box -->
+          <div id="dropZone" class="border-2 border-dashed border-slate-300 hover:border-excel-500 rounded-lg p-5 text-center cursor-pointer transition bg-slate-50 hover:bg-emerald-50/40 flex flex-col items-center justify-center my-auto group min-h-[160px]">
+            <input type="file" id="fileInput" accept=".xlsx, .xls, .csv" class="hidden">
+            
+            <div class="w-12 h-12 rounded-xl bg-white border border-slate-200 group-hover:border-excel-500 text-slate-400 group-hover:text-excel-500 flex items-center justify-center transition duration-200 mb-2 shadow-sm">
+              <i data-lucide="file-up" class="w-6 h-6"></i>
+            </div>
+            
+            <p class="text-xs font-semibold text-slate-700">
+              Click or drag your <span class="text-excel-600 font-bold">.xlsx</span> spreadsheet here
+            </p>
+            <p class="text-[11px] text-slate-400 mt-0.5">Supports Microsoft Excel (.xlsx, .xls) and CSV</p>
+          </div>
+
+          <!-- File Stats Footer -->
+          <div id="fileInfo" class="mt-3 p-2.5 bg-slate-50 rounded-lg border border-slate-200 hidden text-xs flex items-center justify-between">
+            <div class="flex items-center space-x-2.5 overflow-hidden">
+              <div class="p-1.5 bg-excel-500 text-white rounded flex-shrink-0">
+                <i data-lucide="file-spreadsheet" class="w-4 h-4"></i>
+              </div>
+              <div class="truncate">
+                <p id="fileNameDisplay" class="font-semibold text-slate-800 truncate">data.xlsx</p>
+                <p id="fileMetaDisplay" class="text-slate-500 text-[11px]">10 rows</p>
+              </div>
+            </div>
+            <button id="clearFileBtn" class="text-slate-400 hover:text-rose-600 p-1 transition" title="Remove file">
+              <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Formula Bar & Natural Language Prompt Controls (Lg: 7 cols) -->
+      <div class="lg:col-span-7 flex flex-col">
+        <div class="excel-card rounded-xl p-5 flex-1 flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h2 class="text-xs font-bold text-slate-700 uppercase tracking-wider flex items-center space-x-2">
+                <i data-lucide="sparkles" class="w-4 h-4 text-excel-500"></i>
+                <span>2. Natural Language Formula Bar</span>
+              </h2>
+              <span class="text-[11px] font-mono text-slate-400">Gemini AI Prompt</span>
+            </div>
+
+            <!-- Excel Style Formula Bar Input -->
+            <div class="flex items-stretch border border-slate-300 rounded-lg overflow-hidden focus-within:ring-2 focus-within:ring-excel-500 focus-within:border-excel-500 bg-white shadow-sm mt-2">
+              <!-- fx symbol badge -->
+              <div class="bg-slate-100 border-r border-slate-300 px-3 flex items-center justify-center text-slate-600 font-serif italic font-bold text-sm select-none">
+                fx
+              </div>
+              <textarea id="promptInput" rows="3" 
+                placeholder="Enter formula instruction (e.g. 'Sort by Total Revenue descending' or 'Filter rows where Units > 20')"
+                class="w-full p-2.5 text-xs text-slate-800 placeholder-slate-400 outline-none resize-none font-sans"></textarea>
+            </div>
+
+            <!-- Preset Action Buttons -->
+            <div class="mt-3">
+              <p class="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-2">Popular Spreadsheet Presets:</p>
+              <div class="flex flex-wrap gap-2">
+                <button class="preset-chip text-xs bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-excel-700 border border-slate-200 hover:border-emerald-300 px-2.5 py-1.5 rounded-md font-medium transition flex items-center space-x-1"
+                  data-prompt="Sort by Total Revenue descending">
+                  <i data-lucide="arrow-down-narrow-wide" class="w-3 h-3 text-excel-500"></i>
+                  <span>Sort by Revenue ↓</span>
+                </button>
+                <button class="preset-chip text-xs bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-excel-700 border border-slate-200 hover:border-emerald-300 px-2.5 py-1.5 rounded-md font-medium transition flex items-center space-x-1"
+                  data-prompt="Filter rows where Units > 20 and Category is Electronics">
+                  <i data-lucide="filter" class="w-3 h-3 text-cyan-600"></i>
+                  <span>Filter Electronics (Units > 20)</span>
+                </button>
+                <button class="preset-chip text-xs bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-excel-700 border border-slate-200 hover:border-emerald-300 px-2.5 py-1.5 rounded-md font-medium transition flex items-center space-x-1"
+                  data-prompt="Group by Region and sum Total Revenue and Units">
+                  <i data-lucide="pie-chart" class="w-3 h-3 text-amber-600"></i>
+                  <span>Sum Revenue by Region</span>
+                </button>
+                <button class="preset-chip text-xs bg-slate-100 hover:bg-emerald-50 text-slate-700 hover:text-excel-700 border border-slate-200 hover:border-emerald-300 px-2.5 py-1.5 rounded-md font-medium transition flex items-center space-x-1"
+                  data-prompt="Calculate a 10% Tax column and add Net Total for each row">
+                  <i data-lucide="calculator" class="w-3 h-3 text-blue-600"></i>
+                  <span>Add Tax & Net Total Column</span>
+                </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Action Button -->
+          <div class="mt-4 flex items-center justify-end">
+            <button id="analyzeBtn" disabled
+              class="w-full sm:w-auto px-5 py-2.5 rounded-lg bg-excel-500 hover:bg-excel-600 disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-semibold shadow-md transition flex items-center justify-center space-x-2">
+              <i data-lucide="play" class="w-4 h-4 fill-white"></i>
+              <span>Execute AI Transformation</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- AI Analysis Summary Card (Hidden until generated) -->
+    <section id="summaryCard" class="hidden">
+      <div class="bg-emerald-50 border border-emerald-200 rounded-xl p-4 shadow-sm text-slate-800">
+        <div class="flex items-start space-x-3">
+          <div class="w-8 h-8 rounded-lg bg-excel-500 text-white flex items-center justify-center flex-shrink-0 mt-0.5 shadow">
+            <i data-lucide="info" class="w-4 h-4"></i>
+          </div>
+          <div class="flex-1">
+            <div class="flex items-center justify-between mb-1">
+              <h3 class="text-xs font-bold text-excel-800 uppercase tracking-wider">AI Calculation Summary & Observations</h3>
+              <span class="text-[10px] font-semibold text-excel-700 bg-white px-2 py-0.5 rounded border border-emerald-300">Gemini 3.6 Flash</span>
+            </div>
+            <p id="summaryText" class="text-xs text-slate-700 leading-relaxed mt-1 font-normal">
+              Analysis summary output...
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Spreadsheet Data Grid Views -->
+    <section class="space-y-4">
+      
+      <!-- Excel Tab Navigation & Export Header -->
+      <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-300 pb-3">
+        
+        <div class="flex items-center space-x-1">
+          <button id="tabOriginalBtn" class="px-4 py-2 rounded-t-lg text-xs font-bold bg-white text-excel-700 border-t-2 border-x border-excel-500 shadow-sm transition flex items-center space-x-2">
+            <i data-lucide="sheet" class="w-3.5 h-3.5 text-excel-600"></i>
+            <span>Sheet 1: Original Input Data</span>
+            <span id="originalBadgeCount" class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-slate-100 text-slate-600 border border-slate-200">0</span>
+          </button>
+          
+          <button id="tabProcessedBtn" class="px-4 py-2 rounded-t-lg text-xs font-semibold text-slate-600 hover:text-slate-900 border border-transparent transition flex items-center space-x-2">
+            <i data-lucide="wand" class="w-3.5 h-3.5 text-excel-500"></i>
+            <span>Sheet 2: AI Transformed Output</span>
+            <span id="processedBadgeCount" class="ml-1 px-1.5 py-0.5 rounded text-[10px] bg-emerald-100 text-excel-700">0</span>
+          </button>
+        </div>
+
+        <!-- Download Action -->
+        <div class="flex items-center space-x-2">
+          <button id="downloadExcelBtn" disabled
+            class="px-4 py-2 rounded-lg text-xs font-bold bg-excel-600 hover:bg-excel-700 disabled:opacity-40 disabled:cursor-not-allowed text-white shadow transition flex items-center space-x-1.5">
+            <i data-lucide="download" class="w-3.5 h-3.5"></i>
+            <span>Export to Excel (.xlsx)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Original Data Grid -->
+      <div id="originalTableView" class="excel-card rounded-xl overflow-hidden shadow-sm">
+        <div class="p-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+          <span class="text-xs font-bold text-slate-600 uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="table" class="w-3.5 h-3.5 text-slate-400"></i>
+            <span>Original Spreadsheet Grid</span>
+          </span>
+          <span id="originalTableRowsText" class="text-xs text-slate-500 font-mono">No workbook loaded</span>
+        </div>
+        
+        <div class="overflow-x-auto max-h-[440px]">
+          <table class="w-full text-left text-xs border-collapse font-sans">
+            <thead id="originalTableHead" class="sticky top-0 z-10">
+              <tr>
+                <th class="p-3 text-center text-slate-400 bg-slate-50 border-b border-slate-200 font-normal">
+                  Upload an Excel file to display original rows
+                </th>
+              </tr>
+            </thead>
+            <tbody id="originalTableBody">
+              <!-- Dynamic Excel Grid Rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Processed Data Grid -->
+      <div id="processedTableView" class="excel-card rounded-xl overflow-hidden shadow-sm hidden">
+        <div class="p-3 bg-emerald-50/60 border-b border-emerald-200 flex items-center justify-between">
+          <span class="text-xs font-bold text-excel-800 uppercase tracking-wider flex items-center space-x-1.5">
+            <i data-lucide="sparkles" class="w-3.5 h-3.5 text-excel-600"></i>
+            <span>Gemini AI Processed Spreadsheet Grid</span>
+          </span>
+          <span id="processedTableRowsText" class="text-xs text-excel-700 font-mono">Awaiting formula execution</span>
+        </div>
+        
+        <div class="overflow-x-auto max-h-[440px]">
+          <table class="w-full text-left text-xs border-collapse font-sans">
+            <thead id="processedTableHead" class="sticky top-0 z-10">
+              <tr>
+                <th class="p-3 text-center text-slate-400 bg-slate-50 border-b border-slate-200 font-normal">
+                  Execute an AI instruction to display transformed spreadsheet output
+                </th>
+              </tr>
+            </thead>
+            <tbody id="processedTableBody">
+              <!-- Dynamic Processed Rows -->
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- Excel Processing Loading Modal Overlay -->
+  <div id="loadingOverlay" class="fixed inset-0 bg-slate-900/40 backdrop-blur-xs z-50 flex items-center justify-center hidden">
+    <div class="bg-white rounded-xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl border border-slate-200">
+      <div class="w-12 h-12 rounded-xl bg-excel-100 text-excel-600 mx-auto flex items-center justify-center animate-spin">
+        <i data-lucide="loader-2" class="w-6 h-6"></i>
+      </div>
+      <div>
+        <h3 class="text-sm font-bold text-slate-900">Calculating & Transforming Sheet...</h3>
+        <p class="text-xs text-slate-500 mt-1">Gemini 3.6 AI is processing your spreadsheet data.</p>
+      </div>
+      <div class="w-full bg-slate-100 rounded-full h-1.5 overflow-hidden border border-slate-200">
+        <div class="bg-excel-500 h-full w-full animate-pulse"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="fixed bottom-5 right-5 z-50 space-y-2 pointer-events-none"></div>
+
+  <!-- Client Script -->
+  <script src="/app.js"></script>
+  <script>
+    // Initialize Lucide Icons
+    lucide.createIcons();
+
+    // Startup Splash Screen Animation Logic
+    document.addEventListener('DOMContentLoaded', () => {
+      const splashScreen = document.getElementById('splashScreen');
+      const splashProgressBar = document.getElementById('splashProgressBar');
+
+      // Animate progress bar
+      setTimeout(() => {
+        if (splashProgressBar) splashProgressBar.style.width = '100%';
+      }, 100);
+
+      // Fade out splash screen after 1.2s
+      setTimeout(() => {
+        if (splashScreen) {
+          splashScreen.classList.add('opacity-0', 'pointer-events-none');
+          setTimeout(() => {
+            splashScreen.style.display = 'none';
+          }, 700);
+        }
+      }, 1200);
+    });
+  </script>
+</body>
+</html>
