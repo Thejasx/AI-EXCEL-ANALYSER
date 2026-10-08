@@ -122,18 +122,15 @@ function executeTransformationCode(codeStr, dataset) {
 }
 
 /**
- * Robust Gemini AI caller with automatic retry, backoff, and model fallbacks
- * to seamlessly handle 503 (high demand) and 429 (rate limit) spikes.
+ * Robust Gemini AI caller with automatic retry, backoff, and model fallbacks.
+ * Filters out deprecated 404 models and handles 503/429 spikes gracefully.
  */
 async function generateContentWithFallback(ai, systemPrompt) {
   const modelsToTry = [
     process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-    'gemini-2.5-flash',
-    'gemini-1.5-flash',
-    'gemini-2.5-pro'
+    'gemini-3.1-pro-preview'
   ];
 
-  // Remove duplicates while keeping order
   const uniqueModels = [...new Set(modelsToTry)];
   let lastError = null;
 
@@ -153,18 +150,24 @@ async function generateContentWithFallback(ai, systemPrompt) {
       } catch (err) {
         lastError = err;
         const errMessage = (err.message || '').toLowerCase();
-        const isTransient = err.status === 'UNAVAILABLE' || 
+        const errCode = err.code || err.status;
+
+        // If model is deprecated/404, immediately skip to next valid model
+        if (errCode === 404 || errMessage.includes('404') || errMessage.includes('not found') || errMessage.includes('no longer available')) {
+          break;
+        }
+
+        const isTransient = errCode === 503 || errCode === 429 ||
                             errMessage.includes('503') || 
                             errMessage.includes('high demand') || 
                             errMessage.includes('429') ||
                             errMessage.includes('rate limit');
 
         if (isTransient && attempt < 1) {
-          // Wait 1.5s before retrying
+          // Wait 1.5s backoff before retrying
           await new Promise(res => setTimeout(res, 1500));
           continue;
         }
-        // Try next fallback model
         break;
       }
     }
