@@ -40,6 +40,9 @@ document.addEventListener('DOMContentLoaded', () => {
   let originalData = [];
   let processedData = [];
 
+  // Max DOM rendering limit for fast table performance
+  const RENDER_LIMIT = 250;
+
   // Drag & Drop File Handlers
   dropZone.addEventListener('click', () => fileInput.click());
   
@@ -84,7 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
       showToast('Sample sales dataset loaded successfully!', 'success');
     } catch (err) {
       console.warn(err);
-      showToast('Could not fetch sample file directly.', 'info');
+      showToast(err.message || 'Could not fetch sample file.', 'error');
     } finally {
       showLoading(false);
     }
@@ -104,6 +107,24 @@ document.addEventListener('DOMContentLoaded', () => {
   // Tab Navigation Handlers
   tabOriginalBtn.addEventListener('click', () => switchTab('original'));
   tabProcessedBtn.addEventListener('click', () => switchTab('processed'));
+
+  /**
+   * Helper to safely parse API responses and throw human-readable errors
+   */
+  async function parseApiResponse(res) {
+    const contentType = res.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const json = await res.json();
+      if (!res.ok) {
+        throw new Error(json.error || `Server error (${res.status})`);
+      }
+      return json;
+    } else {
+      const text = await res.text();
+      const cleanText = text.replace(/<[^>]*>/g, '').trim();
+      throw new Error(`Server returned error (${res.status}): ${cleanText.slice(0, 150) || res.statusText}`);
+    }
+  }
 
   // Upload File API Call
   async function handleFileUpload(file) {
@@ -129,24 +150,26 @@ document.addEventListener('DOMContentLoaded', () => {
         body: formData
       });
 
-      const result = await res.json();
-      if (!res.ok || !result.success) {
-        throw new Error(result.error || 'Failed to parse Excel file');
-      }
+      const result = await parseApiResponse(res);
 
       originalData = result.data || [];
       processedData = []; // Clear previous AI output
 
       // Update UI File Cards
       fileNameDisplay.textContent = file.name;
-      fileMetaDisplay.textContent = `${originalData.length} rows • Sheet: ${result.activeSheet || 'Sheet1'}`;
+      fileMetaDisplay.textContent = `${originalData.length.toLocaleString()} rows • Sheet: ${result.activeSheet || 'Sheet1'}`;
       fileInfo.classList.remove('hidden');
       fileBadge.classList.remove('hidden');
 
       // Update Tables
       renderExcelGrid(originalTableHead, originalTableBody, originalData);
-      originalBadgeCount.textContent = originalData.length;
-      originalTableRowsText.textContent = `${originalData.length} spreadsheet rows`;
+      originalBadgeCount.textContent = originalData.length.toLocaleString();
+      
+      if (originalData.length > RENDER_LIMIT) {
+        originalTableRowsText.textContent = `Showing top ${RENDER_LIMIT} of ${originalData.length.toLocaleString()} rows`;
+      } else {
+        originalTableRowsText.textContent = `${originalData.length.toLocaleString()} spreadsheet rows`;
+      }
 
       // Reset Processed Table
       processedTableHead.innerHTML = `<tr><th class="p-3 text-center text-slate-400 font-normal">Execute an AI instruction to display transformed spreadsheet output</th></tr>`;
@@ -158,9 +181,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
       switchTab('original');
       updateAnalyzeButtonState();
-      showToast(`Loaded ${originalData.length} rows from ${file.name}`, 'success');
+      showToast(`Loaded ${originalData.length.toLocaleString()} rows from ${file.name}`, 'success');
     } catch (err) {
-      console.error(err);
+      console.error('File Upload Error:', err);
       showToast(err.message, 'error');
       resetState();
     } finally {
@@ -192,10 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
         })
       });
 
-      const result = await response.json();
-      if (!response.ok || !result.success) {
-        throw new Error(result.error || 'Failed to process request with Gemini API');
-      }
+      const result = await parseApiResponse(response);
 
       processedData = result.processedData || [];
 
@@ -205,17 +225,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Render Processed Excel Grid
       renderExcelGrid(processedTableHead, processedTableBody, processedData);
-      processedBadgeCount.textContent = processedData.length;
-      processedTableRowsText.textContent = `${processedData.length} output rows`;
+      processedBadgeCount.textContent = processedData.length.toLocaleString();
+      
+      if (processedData.length > RENDER_LIMIT) {
+        processedTableRowsText.textContent = `Showing top ${RENDER_LIMIT} of ${processedData.length.toLocaleString()} output rows`;
+      } else {
+        processedTableRowsText.textContent = `${processedData.length.toLocaleString()} output rows`;
+      }
 
       // Enable Download button
       downloadExcelBtn.disabled = processedData.length === 0;
 
       // Switch to Processed Tab
       switchTab('processed');
-      showToast('Spreadsheet transformation completed!', 'success');
+      showToast(`Transformed ${processedData.length.toLocaleString()} rows successfully!`, 'success');
     } catch (err) {
-      console.error(err);
+      console.error('AI Analysis Error:', err);
       showToast(err.message, 'error');
     } finally {
       showLoading(false);
@@ -241,7 +266,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       if (!res.ok) {
-        const errorJson = await res.json();
+        const errorJson = await res.json().catch(() => ({ error: 'Export failed' }));
         throw new Error(errorJson.error || 'Failed to generate Excel file');
       }
 
@@ -255,9 +280,9 @@ document.addEventListener('DOMContentLoaded', () => {
       a.remove();
       window.URL.revokeObjectURL(url);
 
-      showToast('Excel file downloaded successfully!', 'success');
+      showToast(`Exported ${processedData.length.toLocaleString()} rows to Excel!`, 'success');
     } catch (err) {
-      console.error(err);
+      console.error('Export Error:', err);
       showToast(err.message, 'error');
     } finally {
       showLoading(false);
@@ -274,7 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
     return letter;
   }
 
-  // Excel Grid Table Renderer
+  // Excel Grid Table Renderer (with performance virtualization limit)
   function renderExcelGrid(headElem, bodyElem, dataArray) {
     headElem.innerHTML = '';
     bodyElem.innerHTML = '';
@@ -304,8 +329,12 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     headElem.appendChild(trHead);
 
+    // Limit DOM rows rendered to prevent browser tab lag on massive files
+    const renderData = dataArray.slice(0, RENDER_LIMIT);
+
     // Build Table Body Rows with Row Numbers
-    dataArray.forEach((row, rowIndex) => {
+    const fragment = document.createDocumentFragment();
+    renderData.forEach((row, rowIndex) => {
       const tr = document.createElement('tr');
       tr.className = 'hover:bg-emerald-50/40 transition duration-150 odd:bg-white even:bg-slate-50/70';
 
@@ -321,7 +350,7 @@ document.addEventListener('DOMContentLoaded', () => {
         let value = row[header];
         if (value === null || value === undefined) value = '';
         if (typeof value === 'number') {
-          if (header.toLowerCase().includes('revenue') || header.toLowerCase().includes('price') || header.toLowerCase().includes('cost')) {
+          if (header.toLowerCase().includes('revenue') || header.toLowerCase().includes('price') || header.toLowerCase().includes('cost') || header.toLowerCase().includes('profit') || header.toLowerCase().includes('tax')) {
             value = '$' + Number(value).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 });
           } else {
             value = Number(value).toLocaleString();
@@ -330,8 +359,21 @@ document.addEventListener('DOMContentLoaded', () => {
         td.textContent = value;
         tr.appendChild(td);
       });
-      bodyElem.appendChild(tr);
+      fragment.appendChild(tr);
     });
+    bodyElem.appendChild(fragment);
+
+    // Add informative footer row if dataset exceeds render limit
+    if (dataArray.length > RENDER_LIMIT) {
+      const trInfo = document.createElement('tr');
+      trInfo.className = 'bg-amber-50/70 border-t border-amber-200';
+      const tdInfo = document.createElement('td');
+      tdInfo.colSpan = headers.length + 1;
+      tdInfo.className = 'p-2.5 px-4 text-amber-800 text-center text-xs font-semibold';
+      tdInfo.textContent = `⚡ Displaying top ${RENDER_LIMIT} rows out of ${dataArray.length.toLocaleString()} total rows. All ${dataArray.length.toLocaleString()} rows will be exported when downloading the Excel file.`;
+      trInfo.appendChild(tdInfo);
+      bodyElem.appendChild(trInfo);
+    }
   }
 
   // Switch Tab View (Excel Theme)
@@ -407,10 +449,10 @@ document.addEventListener('DOMContentLoaded', () => {
       icon = 'alert-circle';
     }
 
-    toast.className = `pointer-events-auto flex items-center space-x-2.5 px-4 py-3 rounded-lg border ${bgColors} shadow-lg text-xs font-semibold transition duration-300 transform translate-y-2 opacity-0`;
+    toast.className = `pointer-events-auto flex items-center space-x-2.5 px-4 py-3 rounded-lg border ${bgColors} shadow-lg text-xs font-semibold transition duration-300 transform translate-y-2 opacity-0 max-w-md`;
     toast.innerHTML = `
       <i data-lucide="${icon}" class="w-4 h-4 text-excel-600 flex-shrink-0"></i>
-      <span>${message}</span>
+      <span class="break-words">${message}</span>
     `;
 
     toastContainer.appendChild(toast);
@@ -423,6 +465,6 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(() => {
       toast.classList.add('opacity-0', 'translate-y-2');
       setTimeout(() => toast.remove(), 300);
-    }, 3500);
+    }, 4500);
   }
 });
