@@ -122,62 +122,56 @@ function executeTransformationCode(codeStr, dataset) {
 }
 
 /**
- * Robust Gemini AI caller with automatic retry, backoff, and model fallbacks.
- * Filters out deprecated 404 models and handles 503/429 spikes gracefully.
+ * Robust Gemini AI caller using gemini-3.6-flash with exponential backoff retries
+ * and clean error handling for rate limits / spikes.
  */
 async function generateContentWithFallback(ai, systemPrompt) {
-  const modelsToTry = [
-    process.env.GEMINI_MODEL || 'gemini-3.6-flash',
-    'gemini-3.1-pro-preview'
-  ];
-
-  const uniqueModels = [...new Set(modelsToTry)];
+  const primaryModel = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
+  const maxRetries = 3;
   let lastError = null;
 
-  for (const model of uniqueModels) {
-    for (let attempt = 0; attempt < 2; attempt++) {
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          contents: systemPrompt,
-          config: {
-            responseMimeType: 'application/json'
-          }
-        });
-        if (response && response.text) {
-          return response.text;
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: primaryModel,
+        contents: systemPrompt,
+        config: {
+          responseMimeType: 'application/json'
         }
-      } catch (err) {
-        lastError = err;
-        const errMessage = (err.message || '').toLowerCase();
-        const errCode = err.code || err.status;
-
-        // If model is deprecated/404, immediately skip to next valid model
-        if (errCode === 404 || errMessage.includes('404') || errMessage.includes('not found') || errMessage.includes('no longer available')) {
-          break;
-        }
-
-        const isTransient = errCode === 503 || errCode === 429 ||
-                            errMessage.includes('503') || 
-                            errMessage.includes('high demand') || 
-                            errMessage.includes('429') ||
-                            errMessage.includes('rate limit');
-
-        if (isTransient && attempt < 1) {
-          // Wait 1.5s backoff before retrying
-          await new Promise(res => setTimeout(res, 1500));
-          continue;
-        }
-        break;
+      });
+      if (response && response.text) {
+        return response.text;
       }
+    } catch (err) {
+      lastError = err;
+      const errMessage = (err.message || '').toLowerCase();
+      const errCode = err.code || err.status;
+
+      const isTransient = errCode === 503 || errCode === 429 ||
+                          errMessage.includes('503') || 
+                          errMessage.includes('high demand') || 
+                          errMessage.includes('429') ||
+                          errMessage.includes('rate limit') ||
+                          errMessage.includes('resource_exhausted');
+
+      if (isTransient && attempt < maxRetries) {
+        // Exponential backoff: 1.5s, 3s
+        await new Promise(res => setTimeout(res, 1500 * attempt));
+        continue;
+      }
+      break;
     }
   }
 
-  if (lastError && (lastError.message || '').includes('high demand')) {
-    throw new Error('Gemini AI is currently experiencing temporary high demand. Please try clicking Execute again in a few seconds.');
+  const msg = (lastError?.message || '').toLowerCase();
+  if (msg.includes('quota') || msg.includes('429') || msg.includes('resource_exhausted')) {
+    throw new Error('Gemini API quota or rate limit temporarily reached. Please wait a few seconds before trying your prompt again.');
+  }
+  if (msg.includes('503') || msg.includes('high demand')) {
+    throw new Error('Gemini AI servers are currently experiencing high demand. Please try clicking Execute again in a few moments.');
   }
 
-  throw lastError || new Error('All Gemini AI model attempts failed. Please try again.');
+  throw new Error(lastError?.message || 'Failed to communicate with Gemini API.');
 }
 
 /**
