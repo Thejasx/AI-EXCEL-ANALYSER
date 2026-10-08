@@ -122,6 +122,62 @@ function executeTransformationCode(codeStr, dataset) {
 }
 
 /**
+ * Robust Gemini AI caller with automatic retry, backoff, and model fallbacks
+ * to seamlessly handle 503 (high demand) and 429 (rate limit) spikes.
+ */
+async function generateContentWithFallback(ai, systemPrompt) {
+  const modelsToTry = [
+    process.env.GEMINI_MODEL || 'gemini-3.6-flash',
+    'gemini-2.5-flash',
+    'gemini-1.5-flash',
+    'gemini-2.5-pro'
+  ];
+
+  // Remove duplicates while keeping order
+  const uniqueModels = [...new Set(modelsToTry)];
+  let lastError = null;
+
+  for (const model of uniqueModels) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          contents: systemPrompt,
+          config: {
+            responseMimeType: 'application/json'
+          }
+        });
+        if (response && response.text) {
+          return response.text;
+        }
+      } catch (err) {
+        lastError = err;
+        const errMessage = (err.message || '').toLowerCase();
+        const isTransient = err.status === 'UNAVAILABLE' || 
+                            errMessage.includes('503') || 
+                            errMessage.includes('high demand') || 
+                            errMessage.includes('429') ||
+                            errMessage.includes('rate limit');
+
+        if (isTransient && attempt < 1) {
+          // Wait 1.5s before retrying
+          await new Promise(res => setTimeout(res, 1500));
+          continue;
+        }
+        // Try next fallback model
+        break;
+      }
+    }
+  }
+
+  if (lastError && (lastError.message || '').includes('high demand')) {
+    throw new Error('Gemini AI is currently experiencing temporary high demand. Please try clicking Execute again in a few seconds.');
+  }
+
+  throw lastError || new Error('All Gemini AI model attempts failed. Please try again.');
+}
+
+/**
  * Endpoint: POST /api/upload
  * Reads uploaded Excel file (.xlsx, .xls, .csv) and converts sheet data to JSON.
  */
@@ -216,17 +272,7 @@ Respond STRICTLY in valid JSON matching this exact structure:
   "code": "data => data.filter(...).map(...)"
 }`;
 
-    const modelName = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
-
-    const response = await ai.models.generateContent({
-      model: modelName,
-      contents: systemPrompt,
-      config: {
-        responseMimeType: 'application/json'
-      }
-    });
-
-    const responseText = response.text;
+    const responseText = await generateContentWithFallback(ai, systemPrompt);
     const resultJson = cleanAndParseJson(responseText);
 
     let processedData = null;
