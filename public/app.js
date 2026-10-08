@@ -126,7 +126,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Upload File API Call
+  /**
+   * Parse Excel File client-side via SheetJS (bypasses payload limits)
+   * with server fallback if client parsing fails.
+   */
   async function handleFileUpload(file) {
     if (!file) return;
 
@@ -140,47 +143,47 @@ document.addEventListener('DOMContentLoaded', () => {
     currentFile = file;
     activeFileName = file.name;
 
-    const formData = new FormData();
-    formData.append('excelFile', file);
+    showLoading(true);
 
+    // Attempt Client-Side SheetJS parsing (Fast, 0 network payload)
+    if (window.XLSX) {
+      try {
+        const arrayBuffer = await file.arrayBuffer();
+        const workbook = window.XLSX.read(arrayBuffer, { type: 'array' });
+
+        if (!workbook.SheetNames || !workbook.SheetNames.length) {
+          throw new Error('The uploaded file contains no sheets.');
+        }
+
+        const activeSheet = workbook.SheetNames[0];
+        const worksheet = workbook.Sheets[activeSheet];
+        originalData = window.XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+        processedData = [];
+
+        onDataLoaded(file.name, activeSheet);
+        showToast(`Loaded ${originalData.length.toLocaleString()} rows from ${file.name}`, 'success');
+        showLoading(false);
+        return;
+      } catch (clientErr) {
+        console.warn('Client-side SheetJS parsing failed, falling back to server route:', clientErr);
+      }
+    }
+
+    // Server Fallback Route
     try {
-      showLoading(true);
+      const formData = new FormData();
+      formData.append('excelFile', file);
+
       const res = await fetch('/api/upload', {
         method: 'POST',
         body: formData
       });
 
       const result = await parseApiResponse(res);
-
       originalData = result.data || [];
-      processedData = []; // Clear previous AI output
+      processedData = [];
 
-      // Update UI File Cards
-      fileNameDisplay.textContent = file.name;
-      fileMetaDisplay.textContent = `${originalData.length.toLocaleString()} rows • Sheet: ${result.activeSheet || 'Sheet1'}`;
-      fileInfo.classList.remove('hidden');
-      fileBadge.classList.remove('hidden');
-
-      // Update Tables
-      renderExcelGrid(originalTableHead, originalTableBody, originalData);
-      originalBadgeCount.textContent = originalData.length.toLocaleString();
-      
-      if (originalData.length > RENDER_LIMIT) {
-        originalTableRowsText.textContent = `Showing top ${RENDER_LIMIT} of ${originalData.length.toLocaleString()} rows`;
-      } else {
-        originalTableRowsText.textContent = `${originalData.length.toLocaleString()} spreadsheet rows`;
-      }
-
-      // Reset Processed Table
-      processedTableHead.innerHTML = `<tr><th class="p-3 text-center text-slate-400 font-normal">Execute an AI instruction to display transformed spreadsheet output</th></tr>`;
-      processedTableBody.innerHTML = '';
-      processedBadgeCount.textContent = '0';
-      processedTableRowsText.textContent = 'Awaiting formula execution';
-      summaryCard.classList.add('hidden');
-      downloadExcelBtn.disabled = true;
-
-      switchTab('original');
-      updateAnalyzeButtonState();
+      onDataLoaded(file.name, result.activeSheet || 'Sheet1');
       showToast(`Loaded ${originalData.length.toLocaleString()} rows from ${file.name}`, 'success');
     } catch (err) {
       console.error('File Upload Error:', err);
@@ -191,7 +194,33 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Analyze Button Click Handler
+  function onDataLoaded(fileName, sheetName) {
+    fileNameDisplay.textContent = fileName;
+    fileMetaDisplay.textContent = `${originalData.length.toLocaleString()} rows • Sheet: ${sheetName}`;
+    fileInfo.classList.remove('hidden');
+    fileBadge.classList.remove('hidden');
+
+    renderExcelGrid(originalTableHead, originalTableBody, originalData);
+    originalBadgeCount.textContent = originalData.length.toLocaleString();
+
+    if (originalData.length > RENDER_LIMIT) {
+      originalTableRowsText.textContent = `Showing top ${RENDER_LIMIT} of ${originalData.length.toLocaleString()} rows`;
+    } else {
+      originalTableRowsText.textContent = `${originalData.length.toLocaleString()} spreadsheet rows`;
+    }
+
+    processedTableHead.innerHTML = `<tr><th class="p-3 text-center text-slate-400 font-normal">Execute an AI instruction to display transformed spreadsheet output</th></tr>`;
+    processedTableBody.innerHTML = '';
+    processedBadgeCount.textContent = '0';
+    processedTableRowsText.textContent = 'Awaiting formula execution';
+    summaryCard.classList.add('hidden');
+    downloadExcelBtn.disabled = true;
+
+    switchTab('original');
+    updateAnalyzeButtonState();
+  }
+
+  // Analyze Button Click Handler (Uses Lightweight ~2 KB Metadata payload)
   analyzeBtn.addEventListener('click', async () => {
     const prompt = promptInput.value.trim();
     if (!originalData.length) {
@@ -206,18 +235,41 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       showLoading(true);
 
+      // Lightweight metadata payload (2 KB) avoids Vercel 4.5 MB body limit
+      const payload = {
+        columns: Object.keys(originalData[0] || {}),
+        sampleRows: originalData.slice(0, Math.min(10, originalData.length)),
+        totalRows: originalData.length,
+        prompt
+      };
+
       const response = await fetch('/api/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: originalData,
-          prompt
-        })
+        body: JSON.stringify(payload)
       });
 
       const result = await parseApiResponse(response);
 
-      processedData = result.processedData || [];
+      // Execute AI Code on full dataset in client browser (Instant execution, 0 payload)
+      if (result.code && typeof result.code === 'string') {
+        let cleanCode = result.code.trim();
+        if (cleanCode.startsWith('```')) {
+          cleanCode = cleanCode.replace(/```(?:javascript|js)?/gi, '').replace(/```/g, '').trim();
+        }
+
+        try {
+          const transformFn = new Function('data', `return (${cleanCode})(data);`);
+          processedData = transformFn(originalData);
+        } catch (evalErr) {
+          console.warn('Browser evaluation of Gemini code failed:', evalErr);
+          processedData = result.processedData || originalData;
+        }
+      } else if (result.processedData) {
+        processedData = result.processedData;
+      } else {
+        processedData = originalData;
+      }
 
       // Update Summary Card
       summaryText.textContent = result.summary || 'Processing complete.';
@@ -247,7 +299,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  // Download Processed Excel Handler
+  // Download Processed Excel Handler (Client-side SheetJS Export)
   downloadExcelBtn.addEventListener('click', async () => {
     if (!processedData.length) {
       showToast('No processed data available to export.', 'error');
@@ -256,6 +308,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
     try {
       showLoading(true);
+
+      // Client-Side SheetJS Export (Instant, 0 network payload)
+      if (window.XLSX) {
+        const worksheet = window.XLSX.utils.json_to_sheet(processedData);
+        const workbook = window.XLSX.utils.book_new();
+        window.XLSX.utils.book_append_sheet(workbook, worksheet, 'Analyzed Data');
+
+        const baseName = activeFileName ? activeFileName.replace(/\.[^/.]+$/, '') : 'Data';
+        const downloadFileName = `Analyzed_${baseName}.xlsx`;
+
+        window.XLSX.writeFile(workbook, downloadFileName);
+        showToast(`Exported ${processedData.length.toLocaleString()} rows to Excel!`, 'success');
+        showLoading(false);
+        return;
+      }
+
+      // Server Export Fallback Route
       const res = await fetch('/api/export', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

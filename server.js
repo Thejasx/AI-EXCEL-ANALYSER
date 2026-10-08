@@ -16,10 +16,10 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Enable CORS and generous JSON parsing limits for large spreadsheet datasets
+// Enable CORS and generous JSON parsing limits
 app.use(cors());
-app.use(express.json({ limit: '100mb' }));
-app.use(express.urlencoded({ limit: '100mb', extended: true }));
+app.use(express.json({ limit: '50mb' }));
+app.use(express.urlencoded({ limit: '50mb', extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // Configure Multer for in-memory file uploads (up to 50 MB)
@@ -158,27 +158,36 @@ app.post('/api/upload', upload.single('excelFile'), (req, res) => {
 
 /**
  * Endpoint: POST /api/analyze
- * Uses AI code interpreter pattern: sample dataset + instruction -> JS code -> Node.js execution.
- * Handles massive datasets (3.9 MB / 100k+ rows) in milliseconds without prompt or token limits.
+ * Generates JS transformation code using Gemini based on dataset schema & sample rows.
+ * Supports lightweight metadata payload (< 5 KB) to bypass Vercel serverless body limits (4.5 MB).
  */
 app.post('/api/analyze', async (req, res) => {
   try {
-    const { data, prompt } = req.body;
-
-    if (!data || !Array.isArray(data) || data.length === 0) {
-      return res.status(400).json({ error: 'Dataset is missing or empty.' });
-    }
+    const { data, columns: reqColumns, sampleRows: reqSampleRows, totalRows: reqTotalRows, prompt } = req.body;
 
     if (!prompt || typeof prompt !== 'string' || !prompt.trim()) {
       return res.status(400).json({ error: 'Analysis instruction prompt is required.' });
     }
 
-    const ai = getGeminiClient();
+    let columns = [];
+    let sampleRows = [];
+    let totalRows = 0;
+    let fullDataset = null;
 
-    // Extract dataset metadata and sample rows to keep prompt lightweight & fast
-    const totalRows = data.length;
-    const columns = Object.keys(data[0] || {});
-    const sampleRows = data.slice(0, Math.min(10, totalRows));
+    if (Array.isArray(data) && data.length > 0) {
+      fullDataset = data;
+      totalRows = data.length;
+      columns = Object.keys(data[0] || {});
+      sampleRows = data.slice(0, Math.min(10, totalRows));
+    } else if (Array.isArray(reqColumns) && Array.isArray(reqSampleRows)) {
+      columns = reqColumns;
+      sampleRows = reqSampleRows;
+      totalRows = reqTotalRows || reqSampleRows.length;
+    } else {
+      return res.status(400).json({ error: 'Dataset metadata or rows are missing.' });
+    }
+
+    const ai = getGeminiClient();
 
     const systemPrompt = `You are an expert data scientist and JavaScript spreadsheet automation engine.
 You are given metadata and sample rows from an Excel dataset with ${totalRows} total rows.
@@ -220,26 +229,22 @@ Respond STRICTLY in valid JSON matching this exact structure:
     const responseText = response.text;
     const resultJson = cleanAndParseJson(responseText);
 
-    let processedData = [];
+    let processedData = null;
 
-    // Execute generated transformation code on full dataset
-    if (resultJson.code && typeof resultJson.code === 'string') {
+    if (fullDataset && resultJson.code && typeof resultJson.code === 'string') {
       try {
-        processedData = executeTransformationCode(resultJson.code, data);
+        processedData = executeTransformationCode(resultJson.code, fullDataset);
       } catch (codeErr) {
-        console.warn('VM Execution of Gemini JS code failed, falling back to direct data:', codeErr.message);
-        processedData = resultJson.processedData || data;
+        console.warn('VM Execution of Gemini JS code failed, falling back:', codeErr.message);
+        processedData = resultJson.processedData || fullDataset;
       }
-    } else if (Array.isArray(resultJson.processedData)) {
-      processedData = resultJson.processedData;
-    } else {
-      processedData = data;
     }
 
     res.json({
       success: true,
       summary: resultJson.summary || 'Data analysis and transformation complete.',
-      rowCount: processedData.length,
+      code: resultJson.code || null,
+      rowCount: processedData ? processedData.length : totalRows,
       processedData
     });
 
